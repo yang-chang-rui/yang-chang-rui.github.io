@@ -1,20 +1,142 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的轻论坛</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; }
+        .post { border-bottom: 1px solid #ccc; padding: 1rem 0; }
+        .post h3 { margin: 0 0 0.3rem; }
+        .post .meta { font-size: 0.85rem; color: #666; }
+        textarea, input { width: 100%; padding: 0.5rem; margin: 0.3rem 0; box-sizing: border-box; }
+        button { padding: 0.5rem 1.5rem; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #1d4ed8; }
+        #loading { color: #888; }
+        .delete-btn { background: #dc2626; padding: 0.2rem 0.6rem; margin-top: 0.3rem; border: none; color: white; border-radius: 4px; cursor: pointer; }
+        .delete-btn:hover { background: #b91c1c; }
+    </style>
+</head>
 <body>
-  <div id="app"></div>
-  <script>
-    // 注意：这里替换成你的 Cloudflare Tunnel 绑定的域名
-    const API_BASE = "https://supervision-clip-mixing-agriculture.trycloudflare.com/api";
+    <h1>📝 小论坛</h1>
 
-    // 获取帖子列表
-    async function loadPosts() {
-      const res = await fetch(API_BASE);
-      const posts = await res.json();
-      document.getElementById('app').innerHTML = posts.map(p => 
-        `<div><h3>${p.title}</h3><p>${p.content}</p></div>`
-      ).join('');
-    }
-    loadPosts();
-  </script>
+    <!-- 发帖表单 -->
+    <div id="form-area">
+        <input type="text" id="titleInput" placeholder="标题（最多200字）" maxlength="200">
+        <textarea id="contentInput" rows="4" placeholder="内容（最多10000字）" maxlength="10000"></textarea>
+        <input type="text" id="authorInput" placeholder="你的名字（可选）" value="匿名">
+        <button id="submitBtn">发布帖子</button>
+        <p id="statusMsg"></p>
+    </div>
+
+    <hr>
+
+    <!-- 帖子列表 -->
+    <div id="post-list">
+        <p id="loading">加载中...</p>
+    </div>
+
+    <script>
+        // ---------- 配置 ----------
+        // ⚠️ 每次 cloudflared 重启后，把这里的域名换成新的临时域名
+        const API_BASE = "https://memorabilia-declaration-cake-accessibility.trycloudflare.com/api";
+
+        // ---------- DOM 引用 ----------
+        const listEl = document.getElementById('post-list');
+        const loadingEl = document.getElementById('loading');
+        const statusEl = document.getElementById('statusMsg');
+
+        // ---------- 工具函数 ----------
+        async function fetchAPI(endpoint, options = {}) {
+            const res = await fetch(`${API_BASE}${endpoint}`, {
+                ...options,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(options.headers || {})
+                }
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || `请求失败 (${res.status})`);
+            }
+            return res.json();
+        }
+
+        // ---------- 加载帖子 ----------
+        async function loadPosts() {
+            try {
+                const posts = await fetchAPI('/posts');
+                if (posts.length === 0) {
+                    listEl.innerHTML = '<p style="color:#888;">还没有帖子，快来发布第一条吧！</p>';
+                    return;
+                }
+                listEl.innerHTML = posts.map(p => `
+                    <div class="post">
+                        <h3>${escapeHtml(p.title)}</h3>
+                        <div>${escapeHtml(p.content).replace(/\n/g, '<br>')}</div>
+                        <div class="meta">📌 ${escapeHtml(p.author)} · ${new Date(p.created_at).toLocaleString()}</div>
+                        <button data-id="${p.id}" class="delete-btn">删除</button>
+                    </div>
+                `).join('');
+
+                // 绑定删除事件
+                document.querySelectorAll('.delete-btn').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        const id = btn.dataset.id;
+                        if (!confirm('确定要删除这条帖子吗？')) return;
+                        try {
+                            await fetchAPI(`/posts/${id}`, { method: 'DELETE' });
+                            statusEl.textContent = '✅ 删除成功';
+                            statusEl.style.color = 'green';
+                            loadPosts(); // 刷新列表
+                        } catch (e) {
+                            statusEl.textContent = '❌ ' + e.message;
+                            statusEl.style.color = 'red';
+                        }
+                    });
+                });
+            } catch (e) {
+                listEl.innerHTML = `<p style="color:red;">加载失败：${e.message}</p>`;
+            }
+        }
+
+        // 简单的 XSS 防护（转义 HTML）
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ---------- 发布帖子 ----------
+        document.getElementById('submitBtn').addEventListener('click', async () => {
+            const title = document.getElementById('titleInput').value.trim();
+            const content = document.getElementById('contentInput').value.trim();
+            const author = document.getElementById('authorInput').value.trim() || '匿名';
+
+            if (!title || !content) {
+                statusEl.textContent = '⚠️ 标题和内容都不能为空';
+                statusEl.style.color = 'orange';
+                return;
+            }
+
+            try {
+                await fetchAPI('/posts', {
+                    method: 'POST',
+                    body: JSON.stringify({ title, content, author })
+                });
+                statusEl.textContent = '✅ 发布成功！';
+                statusEl.style.color = 'green';
+                document.getElementById('titleInput').value = '';
+                document.getElementById('contentInput').value = '';
+                loadPosts(); // 刷新列表
+            } catch (e) {
+                statusEl.textContent = '❌ 发布失败：' + e.message;
+                statusEl.style.color = 'red';
+            }
+        });
+
+        // ---------- 初始加载 ----------
+        loadPosts();
+    </script>
 </body>
 </html>
