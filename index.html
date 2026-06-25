@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <div id="app"></div>
+  <script>
+    // 注意：这里替换成你的 Cloudflare Tunnel 绑定的域名
+    const API_BASE = "https://api.your-free-domain.com/api/posts";
+
+    // 获取帖子列表
+    async function loadPosts() {
+      const res = await fetch(API_BASE);
+      const posts = await res.json();
+      document.getElementById('app').innerHTML = posts.map(p => 
+        `<div><h3>${p.title}</h3><p>${p.content}</p></div>`
+      ).join('');
+    }
+    loadPosts();
+  </script>
+</body>
+</html>
